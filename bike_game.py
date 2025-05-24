@@ -1,6 +1,7 @@
 import pygame
 import sys
 import random
+import os
 
 # Pygameの初期化
 pygame.init()
@@ -18,20 +19,96 @@ GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 GRAY = (100, 100, 100)
 
+# 日本語フォントの設定
+def get_japanese_font(size):
+    """日本語をサポートするフォントを取得"""
+    # まず、macOSのシステムフォントファイルから直接読み込みを試行
+    font_paths = [
+        '/System/Library/Fonts/Hiragino Sans GB.ttc',
+        '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc',
+        '/System/Library/Fonts/Arial Unicode.ttf',
+        '/System/Library/Fonts/Helvetica.ttc',
+        '/Library/Fonts/Arial Unicode MS.ttf'
+    ]
+    
+    for font_path in font_paths:
+        try:
+            if os.path.exists(font_path):
+                font = pygame.font.Font(font_path, size)
+                # 日本語テスト
+                test_surface = font.render("バイクゲーム", True, (0, 0, 0))
+                if test_surface.get_width() > 0:
+                    print(f"Using font file: {font_path}")
+                    return font
+        except Exception as e:
+            print(f"Font file {font_path} failed: {e}")
+            continue
+    
+    # macOS用の確実な日本語フォント候補
+    font_candidates = [
+        'AppleGothic',          # macOS標準日本語フォント
+        'HiraginoSans-W3',      # macOS Hiragino Sans
+        'Hiragino Sans',        # macOS Hiragino Sans
+        'HiraginoSans-W6',      # macOS Hiragino Sans Bold
+        'Arial Unicode MS',     # macOS Arial Unicode
+        'Helvetica',            # macOS標準フォント
+        'System Font',          # システムフォント
+        None                    # pygame デフォルト
+    ]
+    
+    for font_name in font_candidates:
+        try:
+            if font_name:
+                font = pygame.font.SysFont(font_name, size)
+            else:
+                font = pygame.font.Font(None, size)
+            
+            # より確実な日本語文字テスト
+            test_texts = ["あ", "バイク", "ゲーム"]
+            all_valid = True
+            
+            for test_text in test_texts:
+                try:
+                    test_surface = font.render(test_text, True, (0, 0, 0))
+                    if test_surface.get_width() <= 0 or test_surface.get_height() <= 0:
+                        all_valid = False
+                        break
+                except:
+                    all_valid = False
+                    break
+            
+            if all_valid:
+                print(f"Using font: {font_name if font_name else 'Default pygame font'}")
+                return font
+                
+        except Exception as e:
+            print(f"Font {font_name} failed: {e}")
+            continue
+    
+    # 最終手段：強制的にデフォルトフォントを使用
+    print("Warning: No suitable Japanese font found, using default")
+    return pygame.font.Font(None, size)
+
 # バイクのクラス
 class Bike(pygame.sprite.Sprite):
-    def __init__(self):
+    def __init__(self, bike_type="bike1"):
         super().__init__()
-        # バイクの画像を読み込み
+        # バイク画像の読み込み
         try:
-            self.original_image = pygame.image.load("bike.png")
+            if bike_type == "bike1":
+                self.original_image = pygame.image.load("bike.png")
+            else:
+                self.original_image = pygame.image.load("bike2.png")
+                # bike2の画像を左右反転
+                self.original_image = pygame.transform.flip(self.original_image, True, False)
             # 適切なサイズにスケール
-            self.original_image = pygame.transform.scale(self.original_image, (60, 40))
+            self.original_image = pygame.transform.scale(self.original_image, (80, 50))
             self.image = self.original_image
         except pygame.error:
             # 画像が読み込めない場合は四角形で代用
             self.image = pygame.Surface((60, 40))
             self.image.fill(BLUE)
+            print(f"Warning: Could not load {bike_type} image. Using default.")
         
         self.rect = self.image.get_rect()
         self.rect.x = 100
@@ -112,15 +189,95 @@ class Obstacle(pygame.sprite.Sprite):
         if self.rect.right < 0:
             self.kill()
 
+# バイク選択画面クラス
+class BikeSelection:
+    def __init__(self):
+        self.font = get_japanese_font(48)
+        self.small_font = get_japanese_font(32)
+        self.selected = 0  # 0: bike1, 1: bike2
+        
+        # バイク画像の読み込み
+        try:
+            self.bike1_img = pygame.image.load("bike.png")
+            self.bike1_img = pygame.transform.scale(self.bike1_img, (160, 100))
+        except pygame.error:
+            self.bike1_img = pygame.Surface((160, 100))
+            self.bike1_img.fill(BLUE)
+            print("Warning: Could not load bike.png. Using default.")
+            
+        try:
+            self.bike2_img = pygame.image.load("bike2.png")
+            self.bike2_img = pygame.transform.scale(self.bike2_img, (160, 100))
+            # bike2の画像を左右反転
+            self.bike2_img = pygame.transform.flip(self.bike2_img, True, False)
+        except pygame.error:
+            self.bike2_img = pygame.Surface((160, 100))
+            self.bike2_img.fill(GREEN)
+            print("Warning: Could not load bike2.png. Using default.")
+    
+    def run(self):
+        selection_done = False
+        
+        while not selection_done:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_LEFT:
+                        self.selected = 0
+                    elif event.key == pygame.K_RIGHT:
+                        self.selected = 1
+                    elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                        selection_done = True
+            
+            # 描画
+            screen.fill(WHITE)
+            
+            # タイトル
+            title_text = self.font.render("バイクを選んでください", True, BLACK)
+            screen.blit(title_text, (WIDTH // 2 - title_text.get_width() // 2, 50))
+            
+            # バイク1
+            bike1_pos = (WIDTH // 4 - self.bike1_img.get_width() // 2, HEIGHT // 2 - 50)
+            screen.blit(self.bike1_img, bike1_pos)
+            bike1_text = self.small_font.render("バイク1", True, BLACK)
+            screen.blit(bike1_text, (WIDTH // 4 - bike1_text.get_width() // 2, HEIGHT // 2 + 70))
+            
+            # バイク2
+            bike2_pos = (WIDTH * 3 // 4 - self.bike2_img.get_width() // 2, HEIGHT // 2 - 50)
+            screen.blit(self.bike2_img, bike2_pos)
+            bike2_text = self.small_font.render("バイク2", True, BLACK)
+            screen.blit(bike2_text, (WIDTH * 3 // 4 - bike2_text.get_width() // 2, HEIGHT // 2 + 70))
+            
+            # 選択枠の描画
+            if self.selected == 0:
+                pygame.draw.rect(screen, RED, (bike1_pos[0] - 10, bike1_pos[1] - 10, 
+                                             self.bike1_img.get_width() + 20, 
+                                             self.bike1_img.get_height() + 20), 3)
+            else:
+                pygame.draw.rect(screen, RED, (bike2_pos[0] - 10, bike2_pos[1] - 10, 
+                                             self.bike2_img.get_width() + 20, 
+                                             self.bike2_img.get_height() + 20), 3)
+            
+            # 操作説明
+            instruction_text = self.small_font.render("← →キーで選択、Spaceキーで決定", True, BLACK)
+            screen.blit(instruction_text, (WIDTH // 2 - instruction_text.get_width() // 2, HEIGHT - 50))
+            
+            pygame.display.flip()
+        
+        # 選択されたバイクの種類を返す
+        return "bike1" if self.selected == 0 else "bike2"
+
 # ゲームクラス
 class Game:
-    def __init__(self):
-        self.bike = Bike()
+    def __init__(self, bike_type):
+        self.bike = Bike(bike_type)
         self.all_sprites = pygame.sprite.Group()
         self.obstacles = pygame.sprite.Group()
         self.all_sprites.add(self.bike)
         self.score = 0
-        self.font = pygame.font.SysFont(None, 36)
+        self.font = get_japanese_font(36)
         self.obstacle_timer = 0
         self.game_over = False
         self.ground_y = HEIGHT - 70
@@ -139,7 +296,8 @@ class Game:
                     if event.key == pygame.K_SPACE:
                         self.bike.jump()
                     if event.key == pygame.K_r and self.game_over:
-                        self.__init__()  # ゲームリセット
+                        # ゲームリセット（バイク選択画面に戻る）
+                        return True
 
             if not self.game_over:
                 # 障害物の生成（難易度に応じて種類を変更）
@@ -192,7 +350,8 @@ class Game:
             
             # 操作説明
             if self.score < 50:
-                instruction_text = pygame.font.SysFont(None, 24).render("SPACE to jump!", True, BLACK)
+                instruction_font = get_japanese_font(24)
+                instruction_text = instruction_font.render("SPACE to jump!", True, BLACK)
                 screen.blit(instruction_text, (10, 90))
 
             # ゲームオーバー表示
@@ -202,8 +361,18 @@ class Game:
 
             pygame.display.flip()
             clock.tick(60)
+            
+        return False
 
-# ゲーム実行
+# メインループ
 if __name__ == "__main__":
-    game = Game()
-    game.run()
+    restart = True
+    
+    while restart:
+        # バイク選択画面
+        bike_selection = BikeSelection()
+        selected_bike = bike_selection.run()
+        
+        # ゲーム開始
+        game = Game(selected_bike)
+        restart = game.run()
