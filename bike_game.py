@@ -7,7 +7,7 @@ import os
 pygame.init()
 
 # 画面設定
-WIDTH, HEIGHT = 800, 400
+WIDTH, HEIGHT = 1200, 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("バイクゲーム")
 
@@ -90,8 +90,11 @@ def get_japanese_font(size):
 
 # バイクのクラス
 class Bike(pygame.sprite.Sprite):
-    def __init__(self, bike_type="bike1"):
+    def __init__(self, bike_type="bike1", player_id=1):
         super().__init__()
+        self.player_id = player_id
+        self.crashed = False
+        
         # バイク画像の読み込み
         try:
             if bike_type == "bike1":
@@ -106,18 +109,22 @@ class Bike(pygame.sprite.Sprite):
         except pygame.error:
             # 画像が読み込めない場合は四角形で代用
             self.image = pygame.Surface((60, 40))
-            self.image.fill(BLUE)
+            self.image.fill(BLUE if player_id == 1 else GREEN)
             print(f"Warning: Could not load {bike_type} image. Using default.")
         
         self.rect = self.image.get_rect()
-        self.rect.x = 100
-        self.rect.y = HEIGHT - 70 - 40  # 地面位置に合わせて調整
+        # プレイヤー1は左側、プレイヤー2は右側に配置
+        self.rect.x = 80 if player_id == 1 else 120
+        self.rect.y = HEIGHT - 140 - 40  # 地面位置に合わせて調整
         self.velocity_y = 0
         self.jumping = False
         self.gravity = 0.8
-        self.ground_y = HEIGHT - 70 - 40  # 地面位置に合わせて調整
+        self.ground_y = HEIGHT - 140 - 40  # 地面位置に合わせて調整
 
     def update(self, slopes=None):
+        if self.crashed:
+            return
+            
         # 重力の適用
         self.velocity_y += self.gravity
         self.rect.y += self.velocity_y
@@ -138,9 +145,16 @@ class Bike(pygame.sprite.Sprite):
             self.jumping = False
 
     def jump(self):
-        if not self.jumping:
+        if not self.jumping and not self.crashed:
             self.velocity_y = -18
             self.jumping = True
+    
+    def crash(self):
+        self.crashed = True
+        # クラッシュ時の視覚効果（赤くする）
+        if hasattr(self, 'original_image'):
+            self.image = self.original_image.copy()
+            self.image.fill((255, 0, 0, 128), special_flags=pygame.BLEND_RGBA_MULT)
 
 # 坂のクラス
 class Slope(pygame.sprite.Sprite):
@@ -167,7 +181,7 @@ class Slope(pygame.sprite.Sprite):
         
         self.rect = self.image.get_rect()
         self.rect.x = WIDTH
-        self.rect.y = HEIGHT - 70 - self.height
+        self.rect.y = HEIGHT - 140 - self.height
         
     def update(self):
         self.rect.x -= self.speed
@@ -178,7 +192,7 @@ class Slope(pygame.sprite.Sprite):
         """指定されたx座標での坂の地面の高さを取得"""
         relative_x = x - self.rect.x
         if relative_x < 0 or relative_x > self.width:
-            return HEIGHT - 70  # 坂の範囲外は通常の地面の高さ
+            return HEIGHT - 140  # 坂の範囲外は通常の地面の高さ
         
         if self.slope_type == "up":
             # 上り坂：x座標が増えるほど高くなる
@@ -204,7 +218,7 @@ class Obstacle(pygame.sprite.Sprite):
             self.image.fill(RED)
             self.rect = self.image.get_rect()
             self.rect.x = WIDTH
-            self.rect.y = HEIGHT - 70 - self.height
+            self.rect.y = HEIGHT - 140 - self.height
             
         elif obstacle_type == "spike":
             # トゲトゲの障害物（危険度高）
@@ -218,7 +232,7 @@ class Obstacle(pygame.sprite.Sprite):
                                   [(i, self.height), (i+3, self.height-15), (i+6, self.height)])
             self.rect = self.image.get_rect()
             self.rect.x = WIDTH
-            self.rect.y = HEIGHT - 70 - self.height
+            self.rect.y = HEIGHT - 140 - self.height
             
         elif obstacle_type == "wall":
             # 高い壁（ジャンプ必須）
@@ -237,7 +251,7 @@ class Obstacle(pygame.sprite.Sprite):
                                        (x-5, y, 9, 19), 1)
             self.rect = self.image.get_rect()
             self.rect.x = WIDTH
-            self.rect.y = HEIGHT - 70 - self.height
+            self.rect.y = HEIGHT - 140 - self.height
 
     def update(self):
         self.rect.x -= self.speed
@@ -249,7 +263,7 @@ class BikeSelection:
     def __init__(self):
         self.font = get_japanese_font(48)
         self.small_font = get_japanese_font(32)
-        self.selected = 0  # 0: bike1, 1: bike2
+        self.selected = 0  # 0: 1人プレイ, 1: 2人プレイ
         
         # バイク画像の読み込み
         try:
@@ -290,30 +304,35 @@ class BikeSelection:
             screen.fill(WHITE)
             
             # タイトル
-            title_text = self.font.render("バイクを選んでください", True, BLACK)
+            title_text = self.font.render("プレイモードを選んでください", True, BLACK)
             screen.blit(title_text, (WIDTH // 2 - title_text.get_width() // 2, 50))
             
-            # バイク1
-            bike1_pos = (WIDTH // 4 - self.bike1_img.get_width() // 2, HEIGHT // 2 - 50)
-            screen.blit(self.bike1_img, bike1_pos)
-            bike1_text = self.small_font.render("バイク1", True, BLACK)
-            screen.blit(bike1_text, (WIDTH // 4 - bike1_text.get_width() // 2, HEIGHT // 2 + 70))
+            # 1人プレイ
+            player1_pos = (WIDTH // 4 - self.bike1_img.get_width() // 2, HEIGHT // 2 - 50)
+            screen.blit(self.bike1_img, player1_pos)
+            player1_text = self.small_font.render("1人プレイ", True, BLACK)
+            screen.blit(player1_text, (WIDTH // 4 - player1_text.get_width() // 2, HEIGHT // 2 + 70))
             
-            # バイク2
-            bike2_pos = (WIDTH * 3 // 4 - self.bike2_img.get_width() // 2, HEIGHT // 2 - 50)
-            screen.blit(self.bike2_img, bike2_pos)
-            bike2_text = self.small_font.render("バイク2", True, BLACK)
-            screen.blit(bike2_text, (WIDTH * 3 // 4 - bike2_text.get_width() // 2, HEIGHT // 2 + 70))
+            # 2人プレイ
+            player2_pos = (WIDTH * 3 // 4 - 80, HEIGHT // 2 - 50)
+            # 2台のバイクを並べて描画
+            bike1_small = pygame.transform.scale(self.bike1_img, (80, 50))
+            bike2_small = pygame.transform.scale(self.bike2_img, (80, 50))
+            screen.blit(bike1_small, player2_pos)
+            screen.blit(bike2_small, (player2_pos[0] + 80, player2_pos[1]))
+            
+            player2_text = self.small_font.render("2人プレイ", True, BLACK)
+            screen.blit(player2_text, (WIDTH * 3 // 4 - player2_text.get_width() // 2, HEIGHT // 2 + 70))
             
             # 選択枠の描画
             if self.selected == 0:
-                pygame.draw.rect(screen, RED, (bike1_pos[0] - 10, bike1_pos[1] - 10, 
+                pygame.draw.rect(screen, RED, (player1_pos[0] - 10, player1_pos[1] - 10, 
                                              self.bike1_img.get_width() + 20, 
                                              self.bike1_img.get_height() + 20), 3)
             else:
-                pygame.draw.rect(screen, RED, (bike2_pos[0] - 10, bike2_pos[1] - 10, 
-                                             self.bike2_img.get_width() + 20, 
-                                             self.bike2_img.get_height() + 20), 3)
+                pygame.draw.rect(screen, RED, (player2_pos[0] - 10, player2_pos[1] - 10, 
+                                             160 + 20, 
+                                             50 + 20), 3)
             
             # 操作説明
             instruction_text = self.small_font.render("← →キーで選択、Spaceキーで決定", True, BLACK)
@@ -321,23 +340,37 @@ class BikeSelection:
             
             pygame.display.flip()
         
-        # 選択されたバイクの種類を返す
-        return "bike1" if self.selected == 0 else "bike2"
+        # 選択されたモードを返す
+        return "single" if self.selected == 0 else "two_player"
 
 # ゲームクラス
 class Game:
-    def __init__(self, bike_type):
-        self.bike = Bike(bike_type)
+    def __init__(self, game_mode):
+        self.game_mode = game_mode
+        
+        if game_mode == "single":
+            self.bike1 = Bike("bike1", 1)
+            self.bike2 = None
+            self.bikes = [self.bike1]
+        else:  # two_player
+            self.bike1 = Bike("bike1", 1)
+            self.bike2 = Bike("bike2", 2)
+            self.bikes = [self.bike1, self.bike2]
+        
         self.all_sprites = pygame.sprite.Group()
         self.obstacles = pygame.sprite.Group()
         self.slopes = pygame.sprite.Group()
-        self.all_sprites.add(self.bike)
+        
+        for bike in self.bikes:
+            self.all_sprites.add(bike)
+            
         self.score = 0
         self.font = get_japanese_font(36)
+        self.small_font = get_japanese_font(24)
         self.obstacle_timer = 0
         self.slope_timer = 0
         self.game_over = False
-        self.ground_y = HEIGHT - 70
+        self.ground_y = HEIGHT - 140
         self.difficulty = 1
 
     def run(self):
@@ -351,26 +384,34 @@ class Game:
                     sys.exit()
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_SPACE:
-                        self.bike.jump()
-                    if event.key == pygame.K_r and self.game_over:
+                        if self.game_mode == "single":
+                            self.bike1.jump()
+                    # 2人プレイの場合のキー入力
+                    elif event.key == pygame.K_LMETA or event.key == pygame.K_RMETA:  # Cmdキー
+                        if self.bike1:
+                            self.bike1.jump()
+                    elif event.key == pygame.K_LALT or event.key == pygame.K_RALT:  # Optionキー
+                        if self.bike2:
+                            self.bike2.jump()
+                    elif event.key == pygame.K_r and self.game_over:
                         # ゲームリセット（バイク選択画面に戻る）
                         return True
 
             if not self.game_over:
-                # 障害物の生成（難易度に応じて種類を変更）
+                # 障害物の生成（難易度を下げるため壁の出現確率を下げる）
                 self.obstacle_timer += 1
                 spawn_rate = max(40, 100 - int(self.score // 50))  # スコアに応じて生成頻度上昇
                 
                 if self.obstacle_timer >= spawn_rate:
-                    # 障害物の種類をランダムに選択
+                    # 障害物の種類をランダムに選択（壁の確率を大幅に下げる）
                     obstacle_types = ["block", "spike", "wall"]
-                    weights = [50, 30, 20]  # 各障害物の出現確率
+                    weights = [60, 35, 5]  # 壁の出現確率を20%から5%に下げる
                     
-                    # 難易度が上がると危険な障害物が多く出現
+                    # 難易度が上がっても壁の確率は低く保つ
                     if self.score > 100:
-                        weights = [30, 40, 30]
+                        weights = [50, 40, 10]
                     if self.score > 300:
-                        weights = [20, 40, 40]
+                        weights = [40, 45, 15]
                     
                     obstacle_type = random.choices(obstacle_types, weights=weights)[0]
                     obstacle = Obstacle(obstacle_type)
@@ -390,12 +431,20 @@ class Game:
                     self.slope_timer = 0
 
                 # スプライトの更新（バイクに坂の情報を渡す）
-                self.bike.update(self.slopes)
+                for bike in self.bikes:
+                    bike.update(self.slopes)
+                    
                 self.obstacles.update()
                 self.slopes.update()
 
-                # 衝突判定
-                if pygame.sprite.spritecollide(self.bike, self.obstacles, False):
+                # 衝突判定（各バイク個別に判定）
+                for bike in self.bikes:
+                    if not bike.crashed and pygame.sprite.spritecollide(bike, self.obstacles, False):
+                        bike.crash()
+
+                # 全バイクがクラッシュしたかチェック
+                all_crashed = all(bike.crashed for bike in self.bikes)
+                if all_crashed:
                     self.game_over = True
 
                 # スコア更新
@@ -418,11 +467,30 @@ class Game:
             difficulty_text = self.font.render(f"Level: {self.difficulty}", True, BLACK)
             screen.blit(difficulty_text, (10, 50))
             
+            # プレイヤー状態の表示
+            if self.game_mode == "two_player":
+                player1_status = "Player1: " + ("CRASHED" if self.bike1.crashed else "OK")
+                player2_status = "Player2: " + ("CRASHED" if self.bike2.crashed else "OK")
+                
+                player1_color = RED if self.bike1.crashed else GREEN
+                player2_color = RED if self.bike2.crashed else GREEN
+                
+                p1_text = self.small_font.render(player1_status, True, player1_color)
+                p2_text = self.small_font.render(player2_status, True, player2_color)
+                
+                screen.blit(p1_text, (WIDTH - 200, 10))
+                screen.blit(p2_text, (WIDTH - 200, 35))
+            
             # 操作説明
             if self.score < 50:
-                instruction_font = get_japanese_font(24)
-                instruction_text = instruction_font.render("SPACE to jump!", True, BLACK)
-                screen.blit(instruction_text, (10, 90))
+                if self.game_mode == "single":
+                    instruction_text = self.small_font.render("SPACE to jump!", True, BLACK)
+                    screen.blit(instruction_text, (10, 90))
+                else:
+                    instruction_text1 = self.small_font.render("Player1: Cmd to jump!", True, BLACK)
+                    instruction_text2 = self.small_font.render("Player2: Option to jump!", True, BLACK)
+                    screen.blit(instruction_text1, (10, 90))
+                    screen.blit(instruction_text2, (10, 115))
 
             # ゲームオーバー表示
             if self.game_over:
@@ -441,8 +509,8 @@ if __name__ == "__main__":
     while restart:
         # バイク選択画面
         bike_selection = BikeSelection()
-        selected_bike = bike_selection.run()
+        selected_mode = bike_selection.run()
         
         # ゲーム開始
-        game = Game(selected_bike)
+        game = Game(selected_mode)
         restart = game.run()
