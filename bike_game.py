@@ -38,7 +38,6 @@ def get_japanese_font(size):
                 # 日本語テスト
                 test_surface = font.render("バイクゲーム", True, (0, 0, 0))
                 if test_surface.get_width() > 0:
-                    print(f"Using font file: {font_path}")
                     return font
         except Exception as e:
             print(f"Font file {font_path} failed: {e}")
@@ -118,14 +117,23 @@ class Bike(pygame.sprite.Sprite):
         self.gravity = 0.8
         self.ground_y = HEIGHT - 70 - 40  # 地面位置に合わせて調整
 
-    def update(self):
+    def update(self, slopes=None):
         # 重力の適用
         self.velocity_y += self.gravity
         self.rect.y += self.velocity_y
 
+        # 坂を考慮した地面の高さを計算
+        current_ground_y = self.ground_y
+        if slopes:
+            for slope in slopes:
+                # バイクが坂の範囲内にいるかチェック
+                if (slope.rect.x <= self.rect.centerx <= slope.rect.right):
+                    current_ground_y = slope.get_ground_height_at_x(self.rect.centerx) - self.rect.height
+                    break
+
         # 地面との衝突判定
-        if self.rect.y >= self.ground_y:
-            self.rect.y = self.ground_y
+        if self.rect.y >= current_ground_y:
+            self.rect.y = current_ground_y
             self.velocity_y = 0
             self.jumping = False
 
@@ -133,6 +141,53 @@ class Bike(pygame.sprite.Sprite):
         if not self.jumping:
             self.velocity_y = -18
             self.jumping = True
+
+# 坂のクラス
+class Slope(pygame.sprite.Sprite):
+    def __init__(self, slope_type="up"):
+        super().__init__()
+        self.slope_type = slope_type
+        self.speed = 6
+        self.width = 150
+        self.height = 80
+        
+        # 坂のサーフェースを作成
+        self.image = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        
+        if slope_type == "up":
+            # 上り坂（左が低く、右が高い）
+            points = [(0, self.height), (self.width, 0), (self.width, self.height)]
+            pygame.draw.polygon(self.image, (101, 67, 33), points)  # 茶色
+            pygame.draw.polygon(self.image, (139, 115, 85), points, 3)  # 境界線
+        elif slope_type == "down":
+            # 下り坂（左が高く、右が低い）
+            points = [(0, 0), (self.width, self.height), (0, self.height)]
+            pygame.draw.polygon(self.image, (101, 67, 33), points)  # 茶色
+            pygame.draw.polygon(self.image, (139, 115, 85), points, 3)  # 境界線
+        
+        self.rect = self.image.get_rect()
+        self.rect.x = WIDTH
+        self.rect.y = HEIGHT - 70 - self.height
+        
+    def update(self):
+        self.rect.x -= self.speed
+        if self.rect.right < 0:
+            self.kill()
+    
+    def get_ground_height_at_x(self, x):
+        """指定されたx座標での坂の地面の高さを取得"""
+        relative_x = x - self.rect.x
+        if relative_x < 0 or relative_x > self.width:
+            return HEIGHT - 70  # 坂の範囲外は通常の地面の高さ
+        
+        if self.slope_type == "up":
+            # 上り坂：x座標が増えるほど高くなる
+            slope_height = (relative_x / self.width) * self.height
+            return self.rect.y + self.height - slope_height
+        elif self.slope_type == "down":
+            # 下り坂：x座標が増えるほど低くなる
+            slope_height = (relative_x / self.width) * self.height
+            return self.rect.y + slope_height
 
 # 障害物の基本クラス
 class Obstacle(pygame.sprite.Sprite):
@@ -275,10 +330,12 @@ class Game:
         self.bike = Bike(bike_type)
         self.all_sprites = pygame.sprite.Group()
         self.obstacles = pygame.sprite.Group()
+        self.slopes = pygame.sprite.Group()
         self.all_sprites.add(self.bike)
         self.score = 0
         self.font = get_japanese_font(36)
         self.obstacle_timer = 0
+        self.slope_timer = 0
         self.game_over = False
         self.ground_y = HEIGHT - 70
         self.difficulty = 1
@@ -321,8 +378,21 @@ class Game:
                     self.all_sprites.add(obstacle)
                     self.obstacle_timer = 0
 
-                # スプライトの更新
-                self.all_sprites.update()
+                # 坂の生成
+                self.slope_timer += 1
+                slope_spawn_rate = 200  # 坂の生成頻度（フレーム数）
+                
+                if self.slope_timer >= slope_spawn_rate and random.random() < 0.7:  # 70%の確率で坂を生成
+                    slope_type = random.choice(["up", "down"])
+                    slope = Slope(slope_type)
+                    self.slopes.add(slope)
+                    self.all_sprites.add(slope)
+                    self.slope_timer = 0
+
+                # スプライトの更新（バイクに坂の情報を渡す）
+                self.bike.update(self.slopes)
+                self.obstacles.update()
+                self.slopes.update()
 
                 # 衝突判定
                 if pygame.sprite.spritecollide(self.bike, self.obstacles, False):
